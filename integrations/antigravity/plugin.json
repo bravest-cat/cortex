@@ -1,0 +1,6 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "cortex",
+  "version": "1.0.0",
+  "description": "Cortex dual-memory and RAG memory base: four-tier retrieval, temporal episodic facts, AST symbol graphs, hot-sync lifecycle hooks, and progressive disclosure skills."
+}

@@ -1,0 +1,11 @@
+{
+  "name": "cortex-watcher",
+  "command": "<cortex_root>/.venv/bin/python3",
+  "args": [
+    "-m",
+    "cortex.watcher",
+    "--watch",
+    "<cortex_root>"
+  ],
+  "restart_policy": "always"
+}

@@ -1,0 +1,64 @@
+[project]
+name = "cortex"
+version = "0.2.0"
+description = "4-Tier Dual-Memory, AST Code Intelligence & Cognitive RAG System for Google Antigravity CLI"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [
+  { name = "Supreme Knight", email = "realrajdeep09@gmail.com" }
+]
+keywords = [
+  "antigravity", "mcp", "fastmcp", "code-intelligence", "rag",
+  "knowledge-graph", "falkordb", "qdrant", "tree-sitter", "ast"
+]
+dependencies = [
+  "fastmcp>=2.0",
+  "langgraph>=0.3",
+  "llama-index-core>=0.12",
+  "llama-index-embeddings-openai>=0.3",
+  "llama-index-vector-stores-qdrant>=0.4",
+  "qdrant-client>=1.12",
+  "graphiti-core>=0.4",
+  "redis>=5.0",
+  "tree-sitter>=0.23",
+  "tree-sitter-python>=0.23",
+  "tree-sitter-typescript>=0.23",
+  "tree-sitter-javascript>=0.23",
+  "tree-sitter-rust>=0.23",
+  "tree-sitter-go>=0.23",
+  "protobuf>=4.25",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+  "pydantic>=2.7",
+  "python-dotenv>=1.0",
+  "watchdog>=4.0",
+  "aiofiles>=23.2",
+  "rich>=13.7",
+  "falkordb>=1.7.1",
+]
+
+[project.optional-dependencies]
+tier2-languages = [
+  "tree-sitter-c>=0.23",
+  "tree-sitter-cpp>=0.23",
+  "tree-sitter-java>=0.23",
+  "tree-sitter-kotlin>=1.0",
+  "tree-sitter-swift>=0.7",
+  "tree-sitter-c-sharp>=0.23",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+cortex-server    = "cortex.server:main"
+cortex-ingest    = "cortex.ingest:main"
+cortex-watch     = "cortex.watcher:main"
+cortex-dashboard = "cortex.dashboard.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

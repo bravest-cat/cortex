@@ -1,0 +1,85 @@
+name: Cortex CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Wait for Services
+        run: |
+          echo "Waiting for background services..."
+          for i in {1..30}; do
+            if nc -z localhost 6379 && curl -s -f http://localhost:6333/healthz > /dev/null 2>&1; then
+              echo "FalkorDB and Qdrant are ready!"
+              break
+            fi
+            echo "Waiting for services to become healthy ($i/30)..."
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+
+      - name: Install Dependencies
+        run: |
+          uv sync --extra tier2-languages --extra dev
+
+      - name: Run Dynamic OpenViking Test Suite
+        run: |
+          uv run python3 scripts/test_dynamic_viking.py
+
+      - name: Run Ultimate Chunking Test Suite
+        run: |
+          uv run python3 scripts/test_ultimate_chunking.py
+
+      - name: Run Tree-sitter Language Support Test Suite
+        run: |
+          uv run python3 scripts/test_tier2_languages.py
+
+      - name: Run Markdown Vault Ingestion Test Suite
+        run: |
+          uv run python3 scripts/test_markdown_vault_ingestion.py
+
+      - name: Run SCIP Code Intelligence Test Suite
+        run: |
+          uv run python3 scripts/test_scip_ingest.py
+
+      - name: Run Antigravity Lifecycle Hooks Test Suite
+        run: |
+          uv run python3 scripts/test_antigravity_hooks.py
+
+      - name: Run Plugin Manifest Validation
+        run: |
+          uv run python3 scripts/test_plugin_manifest.py

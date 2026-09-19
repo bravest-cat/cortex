@@ -1,0 +1,33 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cortex-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__LOG_LEVEL: INFO
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: cortex-falkordb
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/falkordb_storage:/data
+
+  falkordb-browser:
+    image: falkordb/falkordb-browser:latest
+    container_name: cortex-falkordb-browser
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - FALKORDB_HOST=falkordb
+      - FALKORDB_PORT=6379
+    depends_on:
+      - falkordb

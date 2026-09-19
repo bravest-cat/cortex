@@ -1,0 +1,35 @@
+# Environment & Secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Runtime logs and persisted databases
+logs/
+data/
+*.log
+
+# Personal Daily Journals & Dreams (keep invariants.md and template)
+journal/20*.md
+journal/archive/
+journal/dreams/
+
+# SCIP Indexes
+*.scip
+index.scip
+
+# Python & Build artifacts
+*.pyc
+__pycache__/
+.venv/
+.uv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS artifacts
+.DS_Store
+Thumbs.db

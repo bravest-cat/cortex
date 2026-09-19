@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cortex — Local AI Memory & Observability</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    #network-graph {
+      width: 100%;
+      height: 640px;
+      background: #090d16;
+      border-radius: 0.75rem;
+    }
+  </style>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#eef2ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🧠</span>
+        <div>
+          <h1 class="font-bold text-lg text-slate-100 tracking-tight flex items-center gap-2">
+            CORTEX <span class="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full font-mono border border-indigo-500/30">Local RAG & Memory</span>
+          </h1>
+        </div>
+      </div>
+      
+      <!-- Quick Status Pills -->
+      <div id="quick-status" class="hidden md:flex items-center space-x-3 text-xs font-mono">
+        <span class="text-slate-400">Services:</span>
+        <span id="pill-qdrant" class="px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700">Qdrant ...</span>
+        <span id="pill-falkordb" class="px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700">FalkorDB ...</span>
+        <span id="pill-omlx" class="px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700">oMLX ...</span>
+        <span id="pill-watcher" class="px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700">Watcher ...</span>
+        <button onclick="refreshAll()" class="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Refresh">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="border-b border-slate-800 bg-slate-900/50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 overflow-x-auto">
+      <button onclick="setTab('graph')" id="tab-btn-graph" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-indigo-500 text-indigo-400 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="share-2" class="w-4 h-4"></i> Knowledge Graph
+      </button>
+      <button onclick="setTab('blast')" id="tab-btn-blast" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="crosshair" class="w-4 h-4 text-rose-400"></i> Blast-Radius Explorer
+      </button>
+      <button onclick="setTab('journal')" id="tab-btn-journal" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="book-open" class="w-4 h-4"></i> Decision Journal
+      </button>
+      <button onclick="setTab('retrieval')" id="tab-btn-retrieval" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="search" class="w-4 h-4"></i> Retrieval Lab
+      </button>
+      <button onclick="setTab('collections')" id="tab-btn-collections" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="database" class="w-4 h-4"></i> Collections
+      </button>
+      <button onclick="setTab('health')" id="tab-btn-health" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="activity" class="w-4 h-4"></i> Topology & Health
+      </button>
+      <button onclick="setTab('links')" id="tab-btn-links" class="tab-btn py-3.5 px-2 border-b-2 font-medium text-sm border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+        <i data-lucide="external-link" class="w-4 h-4"></i> Quick Access
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- 1. Knowledge Graph Tab -->
+    <div id="tab-content-graph" class="tab-content space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">FalkorDB Temporal & Symbol Knowledge Graph</h2>
+          <p class="text-sm text-slate-400">Interactive property graph visualization for episodic memory and deterministic code symbols.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Graph Source Selector -->
+          <select id="select-graph-type" onchange="loadGraph()" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+            <option value="episodic">Episodic Memory (cortex)</option>
+            <option value="symbols">Symbol & Reference Graph (cortex_symbols)</option>
+          </select>
+
+          <!-- Graph Search Filter -->
+          <div class="relative">
+            <input type="text" id="graph-search" oninput="filterGraphBySearch()" placeholder="Search node & focus..." class="bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 w-44">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+          </div>
+
+          <!-- View Mode Toggle -->
+          <div class="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono">
+            <label class="flex items-center gap-1.5 cursor-pointer text-slate-300 select-none">
+              <input type="checkbox" id="toggle-hide-mentions" checked onchange="handleToggleClean()" class="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500">
+              <span>Clean View</span>
+            </label>
+          </div>
+
+          <!-- Neighborhood Hop Radius -->
+          <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-mono">
+            <span class="text-slate-400">Radius:</span>
+            <select id="select-hop-radius" onchange="updateFocusRadius()" class="bg-transparent text-white text-xs focus:outline-none cursor-pointer">
+              <option value="1">1-Hop</option>
+              <option value="2">2-Hop</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+
+          <!-- Isolated Focus Toggle -->
+          <div class="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono">
+            <label class="flex items-center gap-1.5 cursor-pointer text-slate-300 select-none" title="Hide unselected nodes completely instead of dimming">
+              <input type="checkbox" id="toggle-isolated-focus" onchange="updateFocusRadius()" class="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500">
+              <span>Isolated</span>
+            </label>
+          </div>
+
+          <!-- Trigger Dream Mode Button -->
+          <button onclick="openDreamModal()" class="text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium px-3.5 py-1.5 rounded-lg shadow-md transition flex items-center gap-1.5 border border-purple-400/30">
+            <i data-lucide="moon" class="w-3.5 h-3.5"></i> Dream Mode
+          </button>
+
+          <button onclick="resetGraphFocus()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium px-3 py-1.5 rounded-lg transition border border-slate-700">
+            Reset View
+          </button>
+
+          <button onclick="loadGraph()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg transition">
+            Reload
+          </button>
+        </div>
+      </div>
+
+      <!-- Graph Container & Drawer -->
+      <div class="relative">
+        <div id="network-graph" class="border border-slate-800 shadow-2xl"></div>
+        
+        <!-- Entity Details Drawer -->
+        <div id="node-details-drawer" class="hidden absolute top-4 right-4 w-96 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl p-5 shadow-2xl space-y-3 text-sm z-10 max-h-[580px] overflow-y-auto">
+          <div class="flex justify-between items-start border-b border-slate-800 pb-3">
+            <div>
+              <span id="drawer-tag" class="text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold"></span>
+              <h3 id="drawer-title" class="font-bold text-white text-base mt-1"></h3>
+            </div>
+            <button onclick="closeDrawer()" class="text-slate-400 hover:text-white p-1">✕</button>
+          </div>
+          <div id="drawer-body" class="space-y-3 text-xs text-slate-300"></div>
+        </div>
+      </div>
+
+      <!-- Legend & Stats -->
+      <div class="flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-400 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+        <div id="legend-episodic" class="flex items-center gap-6">
+          <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-cyan-400 inline-block shadow-sm"></span> Semantic Entity</div>
+          <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500 inline-block shadow-sm"></span> Episodic Decision</div>
+        </div>
+        <div id="legend-symbols" class="hidden flex items-center gap-4">
+          <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-indigo-500 inline-block shadow-sm"></span> File</div>
+          <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-400 inline-block shadow-sm"></span> Symbol</div>
+          <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-sky-400 inline-block"></span> Defined In</div>
+          <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span> Imports</div>
+          <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span> References</div>
+        </div>
+        <div id="graph-stats" class="text-slate-400">Loading graph statistics...</div>
+      </div>
+
+      <!-- Edge Legend Bar for Symbols & SCIP Types -->
+      <div id="graph-legend-bar" class="flex flex-wrap items-center gap-4 text-[11px] font-mono bg-slate-900/60 border border-slate-800 px-3.5 py-2.5 rounded-xl text-slate-300">
+        <span class="text-slate-400 font-semibold uppercase text-[10px]">Edge Types:</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-[#38bdf8]"></span> DEFINED_IN</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-[#34d399]"></span> REFERENCES</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-[#a78bfa]"></span> IMPORTS</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-b border-dashed border-[#ec4899]"></span> IMPLEMENTS (SCIP)</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-b border-dotted border-[#f59e0b]"></span> TYPE_OF (SCIP)</span>
+        <span class="flex items-center gap-1.5 text-slate-400 ml-auto" id="graph-stats">Loading...</span>
+      </div>
+    </div>
+
+    <!-- 2. Blast-Radius Explorer Tab -->
+    <div id="tab-content-blast" class="tab-content hidden space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+            <i data-lucide="crosshair" class="w-5 h-5 text-rose-400"></i>
+            Interactive Blast-Radius & Impact Explorer
+          </h2>
+          <p class="text-sm text-slate-400">Multi-hop recursive call, reference, import, and type implementation impact analysis.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Target Input with Autocomplete -->
+          <div class="relative">
+            <input type="text" id="blast-target-input" list="blast-suggestions" onkeydown="if(event.key==='Enter') executeBlastAnalysis()" placeholder="Symbol or file path..." class="bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500 w-64 font-mono">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+            <datalist id="blast-suggestions"></datalist>
+          </div>
+
+          <!-- Direction Toggle -->
+          <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-mono">
+            <span class="text-slate-400">Direction:</span>
+            <select id="blast-direction" onchange="executeBlastAnalysis()" class="bg-transparent text-white text-xs focus:outline-none cursor-pointer">
+              <option value="upstream">Upstream (Callers / Breakage)</option>
+              <option value="downstream">Downstream (Callees / Dependencies)</option>
+            </select>
+          </div>
+
+          <!-- Max Depth Selector -->
+          <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-mono">
+            <span class="text-slate-400">Max Depth:</span>
+            <select id="blast-depth" onchange="executeBlastAnalysis()" class="bg-transparent text-white text-xs focus:outline-none cursor-pointer">
+              <option value="1">1 Hop (Direct)</option>
+              <option value="2">2 Hops (Transitive)</option>
+              <option value="3" selected>3 Hops (Deep)</option>
+              <option value="4">4 Hops</option>
+              <option value="5">5 Hops (Max)</option>
+            </select>
+          </div>
+
+          <button onclick="executeBlastAnalysis()" class="text-xs bg-rose-600 hover:bg-rose-500 text-white font-medium px-3.5 py-1.5 rounded-lg shadow-md transition flex items-center gap-1.5">
+            <i data-lucide="zap" class="w-3.5 h-3.5"></i> Trace Blast Radius
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary Stat Badges -->
+      <div id="blast-summary-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <span class="text-[10px] text-slate-400 uppercase font-mono block">Target Node</span>
+            <span id="blast-stat-target" class="text-sm font-bold text-white font-mono truncate max-w-[180px] block">None</span>
+          </div>
+          <span id="blast-stat-type" class="text-xs font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 uppercase">-</span>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <span class="text-[10px] text-slate-400 uppercase font-mono block">Direct Dependents (Hop 1)</span>
+            <span id="blast-stat-direct" class="text-sm font-bold text-rose-400 font-mono">0</span>
+          </div>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30">HIGH RISK</span>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <span class="text-[10px] text-slate-400 uppercase font-mono block">Transitive / Types (Hop 2+)</span>
+            <span id="blast-stat-transitive" class="text-sm font-bold text-amber-400 font-mono">0</span>
+          </div>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">MEDIUM RISK</span>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <span class="text-[10px] text-slate-400 uppercase font-mono block">Total Impact Radius</span>
+            <span id="blast-stat-total" class="text-sm font-bold text-sky-400 font-mono">0</span>
+          </div>
+          <span id="blast-stat-risk" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">LOW</span>
+        </div>
+      </div>
+
+      <!-- Graph & Tree Split View -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <!-- Vis Network Graph Container -->
+        <div class="lg:col-span-2 relative">
+          <div id="blast-network-graph" style="height: 580px;" class="border border-slate-800 rounded-xl shadow-2xl bg-[#090d16]"></div>
+          <!-- Canvas Legend Overlay -->
+          <div class="absolute bottom-3 left-3 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg p-2.5 text-[10px] font-mono space-y-1.5 text-slate-300 pointer-events-none">
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-indigo-600"></span> Target (Hop 0)</div>
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-rose-500"></span> Direct Dependents (Hop 1 - High Risk)</div>
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-amber-500"></span> Transitive / Types (Hop 2 - Med Risk)</div>
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-sky-500"></span> Distant Consumers (Hop 3+ - Low Risk)</div>
+          </div>
+        </div>
+
+        <!-- Impact Tree & Call Site Inspector -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col space-y-3" style="max-height: 580px;">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono">Affected Files & Call Sites</h3>
+            <span id="blast-tree-count" class="text-[10px] font-mono text-slate-400">0 items</span>
+          </div>
+          <div id="blast-tree-container" class="flex-1 overflow-y-auto space-y-2 pr-1 font-mono text-xs">
+            <div class="text-center py-16 text-slate-500 text-xs">Select or enter a target symbol or file above and click <span class="text-rose-400 font-semibold">Trace Blast Radius</span>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Decision Journal Tab -->
+    <div id="tab-content-journal" class="tab-content hidden space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Decision Journal & Audit Trail</h2>
+          <p class="text-sm text-slate-400">Immutable markdown records persisted in <code class="text-indigo-400 font-mono">cortex/journal/</code>.</p>
+        </div>
+        <input type="text" id="journal-search" oninput="filterJournal()" placeholder="Filter by keyword or tag..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500 w-64">
+      </div>
+
+      <div id="journal-timeline" class="space-y-4">
+        <div class="text-center py-12 text-slate-500">Loading journal entries...</div>
+      </div>
+    </div>
+
+    <!-- 3. Retrieval Lab Tab -->
+    <div id="tab-content-retrieval" class="tab-content hidden space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Unified 4-Tier Retrieval Sandbox</h2>
+        <p class="text-sm text-slate-400">Test how Cortex synthesizes deterministic symbol graph, episodic facts, AST structure, and cross-encoder reranking.</p>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input type="text" id="retrieval-query" placeholder="Ask a question or enter a symbol (e.g. 'SymbolGraphManager', 'How does indexing work?')..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+        <input type="text" id="retrieval-collection" placeholder="Collection (default or 'all')" class="sm:w-44 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500">
+        <button onclick="executeRetrieval()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-5 py-2 rounded-lg text-sm transition flex items-center justify-center gap-2">
+          <i data-lucide="sparkles" class="w-4 h-4"></i> Retrieve
+        </button>
+      </div>
+
+      <div id="retrieval-results" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+        <!-- Tier 0: Symbols -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <h3 class="font-semibold text-sky-400 text-sm flex items-center gap-2">
+            <span>●</span> Tier 0: Symbol Graph
+          </h3>
+          <p class="text-xs text-slate-400">Deterministic AST definitions & callers.</p>
+          <div id="tier0-content" class="text-xs text-slate-300 font-mono space-y-2 pt-2 overflow-auto max-h-96">
+            <span class="text-slate-500">Enter a query or symbol name.</span>
+          </div>
+        </div>
+
+        <!-- Tier 1: Facts -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <h3 class="font-semibold text-amber-400 text-sm flex items-center gap-2">
+            <span>●</span> Tier 1: FalkorDB Facts
+          </h3>
+          <p class="text-xs text-slate-400">Grounded operational knowledge.</p>
+          <div id="tier1-content" class="text-xs text-slate-300 font-mono space-y-2 pt-2 overflow-auto max-h-96">
+            <span class="text-slate-500">Submit a query to see facts.</span>
+          </div>
+        </div>
+
+        <!-- Tier 2: Viking -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <h3 class="font-semibold text-indigo-400 text-sm flex items-center gap-2">
+            <span>●</span> Tier 2: OpenViking Map
+          </h3>
+          <p class="text-xs text-slate-400">Hierarchical L0/L1 signatures.</p>
+          <div id="tier2-content" class="text-xs text-slate-300 font-mono space-y-2 pt-2 overflow-auto max-h-96">
+            <span class="text-slate-500">Submit a query to see structure.</span>
+          </div>
+        </div>
+
+        <!-- Tier 3: Qdrant + Rerank -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+          <h3 class="font-semibold text-emerald-400 text-sm flex items-center gap-2">
+            <span>●</span> Tier 3: Reranked Code
+          </h3>
+          <p class="text-xs text-slate-400">Dense search + Qwen3 reranking.</p>
+          <div id="tier3-content" class="text-xs text-slate-300 font-mono space-y-2 pt-2 overflow-auto max-h-96">
+            <span class="text-slate-500">Submit a query to see snippets.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Collections Manager Tab -->
+    <div id="tab-content-collections" class="tab-content hidden space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Qdrant Collections Manager</h2>
+          <p class="text-sm text-slate-400">View, create, and manage dense vector collections in Qdrant (:6333).</p>
+        </div>
+        <button onclick="loadCollections()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+          Refresh Collections
+        </button>
+      </div>
+
+      <!-- Create New Collection Card -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="font-semibold text-white text-sm flex items-center gap-2">
+          <i data-lucide="plus-circle" class="w-4 h-4 text-indigo-400"></i> Create New Collection
+        </h3>
+        <p class="text-xs text-slate-400">Collections are configured automatically with 4096 dimensions and Cosine distance for Qwen3-Embedding-8B.</p>
+        <div class="flex flex-col sm:flex-row gap-3">
+          <input type="text" id="new-collection-name" placeholder="e.g. project_alpha, backend_docs..." class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+          <button onclick="createNewCollection()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-5 py-2 rounded-lg transition whitespace-nowrap">
+            Create Collection
+          </button>
+        </div>
+      </div>
+
+      <!-- Active Collections List -->
+      <div class="space-y-3">
+        <h3 class="text-sm font-semibold text-slate-300">Active Collections</h3>
+        <div id="collections-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="text-slate-500 col-span-3 text-center py-8">Loading collections...</div>
+        </div>
+      </div>
+
+      <!-- Ingestion Guide Box -->
+      <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 text-xs font-mono space-y-2 text-slate-400">
+        <span class="text-slate-300 font-semibold flex items-center gap-2">
+          <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Ingesting into a specific collection:
+        </span>
+        <pre class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-indigo-300 overflow-x-auto"># Using Make:
+make ingest WORKSPACE_ROOT=/path/to/my_project COLLECTION=my_collection
+
+# Or directly via UV:
+uv run cortex-ingest --root /path/to/my_project --collection my_collection</pre>
+      </div>
+    </div>
+
+    <!-- 5. Topology & Health Tab -->
+    <div id="tab-content-health" class="tab-content hidden space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Autonomous Subsystems & Health</h2>
+        <p class="text-sm text-slate-400">Real-time status of Cortex file watcher, chunk embedding cache, and SCIP compiler type relations.</p>
+      </div>
+
+      <!-- Autonomous Subsystems (Watcher, Cache, SCIP) -->
+      <div class="pt-2">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Live File Watcher Card -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i data-lucide="eye" class="w-4 h-4 text-sky-400"></i>
+                <h4 class="font-semibold text-white text-sm">Live File Watcher</h4>
+              </div>
+              <span id="watcher-status-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
+            </div>
+            <p class="text-xs text-slate-400">Autonomous watchdog daemon debouncing and syncing file changes to Qdrant & FalkorDB in near real-time.</p>
+            <div class="space-y-1.5 text-xs font-mono pt-1 text-slate-300">
+              <div class="flex justify-between"><span class="text-slate-500">Root:</span> <span id="watcher-root" class="text-sky-300 truncate max-w-[140px]">-</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Debounce:</span> <span id="watcher-debounce" class="text-slate-200">2.0s</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Events Synced:</span> <span id="watcher-processed" class="text-emerald-400 font-bold">0</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Pending Queue:</span> <span id="watcher-pending" class="text-amber-400 font-bold">0</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Last Synced:</span> <span id="watcher-last-file" class="text-slate-400 truncate max-w-[140px]">-</span></div>
+            </div>
+          </div>
+
+          <!-- Chunk Embedding Cache Card -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+                <h4 class="font-semibold text-white text-sm">Chunk Embedding Cache</h4>
+              </div>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">ACTIVE</span>
+            </div>
+            <p class="text-xs text-slate-400">Content-addressable SHA-256 SQLite store mapping chunk text to packed float32 dense vectors.</p>
+            <div class="space-y-1.5 text-xs font-mono pt-1 text-slate-300">
+              <div class="flex justify-between"><span class="text-slate-500">Cached Chunks:</span> <span id="cache-chunks-count" class="text-amber-400 font-bold">0</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Storage Size:</span> <span id="cache-size-mb" class="text-slate-200">0.0 MB</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Total Indexed Files:</span> <span id="cache-indexed-files" class="text-slate-200">0</span></div>
+            </div>
+            <div class="pt-2 border-t border-slate-800/60 flex justify-end">
+              <button onclick="clearChunkCache()" class="text-[11px] font-mono text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1">
+                <i data-lucide="trash-2" class="w-3 h-3"></i> Clear Cache
+              </button>
+            </div>
+          </div>
+
+          <!-- Compiler-Grade SCIP Indexer Card -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i data-lucide="code" class="w-4 h-4 text-purple-400"></i>
+                <h4 class="font-semibold text-white text-sm">SCIP Type Relations</h4>
+              </div>
+              <span id="scip-status-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/30">SUPPORTED</span>
+            </div>
+            <p class="text-xs text-slate-400">Compiler-grade symbol indexing for multi-repo type inference, class inheritance, and interface implementations.</p>
+            <div class="space-y-1.5 text-xs font-mono pt-1 text-slate-300">
+              <div class="flex justify-between"><span class="text-slate-500">Format:</span> <span class="text-slate-200">SCIP (Protobuf v1)</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Edge Types:</span> <span class="text-purple-300">IMPLEMENTS, TYPE_OF</span></div>
+            </div>
+            <div class="pt-2 border-t border-slate-800/60 flex justify-end">
+              <button onclick="triggerScipIngest()" id="btn-scip-ingest" class="text-[11px] font-mono text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1">
+                <i data-lucide="play" class="w-3 h-3"></i> Ingest / Run SCIP
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Quick Access Tab -->
+    <div id="tab-content-links" class="tab-content hidden space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Quick Access Portals</h2>
+        <p class="text-sm text-slate-400">Direct service portals to FalkorDB, Qdrant, and oMLX browser consoles.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+        <a href="http://localhost:8000/admin/dashboard" target="_blank" class="block p-5 bg-slate-900 border border-slate-800 rounded-xl hover:border-indigo-500/50 hover:bg-slate-800/50 transition space-y-2">
+          <div class="text-2xl">⚡</div>
+          <h3 class="font-semibold text-white">oMLX Admin Dashboard (:8000)</h3>
+          <p class="text-xs text-slate-400">Manage active models, monitor memory ceilings, check context quotas, and inspect server metrics live.</p>
+          <span class="text-xs text-indigo-400 font-mono flex items-center gap-1 pt-2">Open Admin Dashboard →</span>
+        </a>
+
+        <a href="http://localhost:3000" target="_blank" class="block p-5 bg-slate-900 border border-slate-800 rounded-xl hover:border-indigo-500/50 hover:bg-slate-800/50 transition space-y-2">
+          <div class="text-2xl">🕸️</div>
+          <h3 class="font-semibold text-white">FalkorDB Browser (:3000)</h3>
+          <p class="text-xs text-slate-400">Run native Cypher queries, explore graph models, and visualize database statistics directly.</p>
+          <span class="text-xs text-indigo-400 font-mono flex items-center gap-1 pt-2">Open Browser →</span>
+        </a>
+
+        <a href="http://localhost:6333/dashboard" target="_blank" class="block p-5 bg-slate-900 border border-slate-800 rounded-xl hover:border-indigo-500/50 hover:bg-slate-800/50 transition space-y-2">
+          <div class="text-2xl">📦</div>
+          <h3 class="font-semibold text-white">Qdrant Dashboard (:6333)</h3>
+          <p class="text-xs text-slate-400">Browse vector collections, inspect 4096-dim points, view payload JSON, and run vector searches.</p>
+          <span class="text-xs text-indigo-400 font-mono flex items-center gap-1 pt-2">Open Dashboard →</span>
+        </a>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/50 py-4 text-center text-xs text-slate-500 font-mono">
+    Cortex Local RAG • Running on Apple Silicon (oMLX + Qdrant + FalkorDB)
+  </footer>
+
+  <script>
+    let network = null;
+    let allNodes = [];
+    let allEdges = [];
+    let nodesDataSet = null;
+    let edgesDataSet = null;
+    let allJournalEntries = [];
+    let blastNetwork = null;
+    let blastNodesDataSet = null;
+    let blastEdgesDataSet = null;
+
+    function setTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'text-indigo-400');
+        btn.classList.add('border-transparent', 'text-slate-400');
+      });
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+
+      const activeBtn = document.getElementById(`tab-btn-${tab}`);
+      const activeContent = document.getElementById(`tab-content-${tab}`);
+      if (activeBtn) {
+        activeBtn.classList.add('border-indigo-500', 'text-indigo-400');
+        activeBtn.classList.remove('border-transparent', 'text-slate-400');
+      }
+      if (activeContent) activeContent.classList.remove('hidden');
+
+      if (tab === 'graph') {
+        populateGraphSelector().then(() => { if (!network) loadGraph(); });
+      }
+      if (tab === 'blast') initBlastTab();
+      if (tab === 'journal') loadJournal();
+      if (tab === 'health') loadHealth();
+      if (tab === 'collections') loadCollections();
+    }
+
+    async function loadHealth() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        updateQuickPills(data.services);
+      } catch (e) {
+        console.error("Health check error:", e);
+      }
+
+      // Fetch Watcher Status
+      try {
+        const wRes = await fetch('/api/watcher/status');
+        const wData = await wRes.json();
+        if (wData.status === 'ok' && wData.watcher) {
+          updateWatcherUI(wData.watcher);
+        }
+      } catch (e) {
+        console.error("Watcher status error:", e);
+      }
+
+      // Fetch Cache Stats
+      try {
+        const cRes = await fetch('/api/cache/stats');
+        const cData = await cRes.json();
+        if (cData.status === 'ok') {
+          updateCacheUI(cData);
+        }
+      } catch (e) {
+        console.error("Cache stats error:", e);
+      }
+
+      lucide.createIcons();
+    }
+
+    function updateQuickPills(services) {
+      services.forEach(s => {
+        const id = s.name.toLowerCase().includes('qdrant') ? 'pill-qdrant'
+                 : s.name.toLowerCase().includes('falkordb graph') ? 'pill-falkordb'
+                 : s.name.toLowerCase().includes('omlx') ? 'pill-omlx' : null;
+        if (id) {
+          const el = document.getElementById(id);
+          if (el) {
+            el.className = s.healthy 
+              ? 'px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 flex items-center gap-1.5'
+              : 'px-2 py-0.5 rounded bg-rose-950/80 text-rose-400 border border-rose-800/50 flex items-center gap-1.5';
+            el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${s.healthy ? 'bg-emerald-400' : 'bg-rose-400'}"></span> ${s.name.split(' ')[0]}`;
+          }
+        }
+      });
+    }
+
+    function updateWatcherUI(w) {
+      const isRunning = w.running && w.alive !== false;
+      const pill = document.getElementById('pill-watcher');
+      if (pill) {
+        pill.className = isRunning
+          ? 'px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 flex items-center gap-1.5'
+          : 'px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5';
+        pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400' : 'bg-slate-500'}"></span> Watcher: ${isRunning ? 'ON' : 'OFF'}`;
+      }
+
+      const badge = document.getElementById('watcher-status-badge');
+      if (badge) {
+        badge.className = isRunning
+          ? 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold'
+          : 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700';
+        badge.textContent = isRunning ? 'RUNNING' : 'STOPPED';
+      }
+
+      if (document.getElementById('watcher-root')) document.getElementById('watcher-root').textContent = w.root || '-';
+      if (document.getElementById('watcher-debounce')) document.getElementById('watcher-debounce').textContent = (w.debounce_sec || 2.0) + 's';
+      if (document.getElementById('watcher-processed')) document.getElementById('watcher-processed').textContent = (w.total_processed || 0).toLocaleString();
+      if (document.getElementById('watcher-pending')) document.getElementById('watcher-pending').textContent = (w.pending_count || 0).toLocaleString();
+      if (document.getElementById('watcher-last-file')) {
+        const lf = w.last_synced_file ? w.last_synced_file.split('/').slice(-2).join('/') : '-';
+        document.getElementById('watcher-last-file').textContent = lf;
+        document.getElementById('watcher-last-file').title = w.last_synced_file || '';
+      }
+    }
+
+    function updateCacheUI(c) {
+      const cc = c.chunk_cache || {};
+      if (document.getElementById('cache-chunks-count')) {
+        document.getElementById('cache-chunks-count').textContent = (cc.total_cached_chunks || 0).toLocaleString();
+      }
+      if (document.getElementById('cache-size-mb')) {
+        document.getElementById('cache-size-mb').textContent = `${cc.storage_size_mb || 0} MB`;
+      }
+      if (document.getElementById('cache-indexed-files')) {
+        document.getElementById('cache-indexed-files').textContent = (c.total_indexed_files || 0).toLocaleString();
+      }
+    }
+
+    async function clearChunkCache() {
+      if (!confirm("Are you sure you want to clear the Chunk Embedding Cache? Sub-second incremental caching will reset.")) return;
+      try {
+        const res = await fetch('/api/cache/clear', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          alert(`✅ Purged ${data.purged_chunks} cached chunk vectors.`);
+          loadHealth();
+        } else {
+          alert(`Error clearing cache: ${data.message}`);
+        }
+      } catch (e) {
+        alert("Cache clear failed: " + e);
+      }
+    }
+
+    async function triggerScipIngest() {
+      const btn = document.getElementById('btn-scip-ingest');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="animate-spin mr-1">⏳</span> Ingesting...';
+      }
+      try {
+        const res = await fetch('/api/scip/auto', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          alert(`✅ ${data.message}! Type edges populated into FalkorDB.`);
+          if (!document.getElementById('tab-content-graph').classList.contains('hidden')) loadGraph();
+        } else {
+          alert(`ℹ️ SCIP Status: ${data.message}`);
+        }
+      } catch (e) {
+        alert("SCIP ingestion error: " + e);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="play" class="w-3 h-3"></i> Ingest / Run SCIP';
+          lucide.createIcons();
+        }
+      }
+    }
+
+    // Blast-Radius Explorer Logic
+    async function initBlastTab() {
+      await loadBlastAutocomplete();
+      const input = document.getElementById('blast-target-input');
+      if (!input.value.trim()) {
+        input.value = 'SymbolGraphManager';
+        executeBlastAnalysis();
+      }
+    }
+
+    async function loadBlastAutocomplete() {
+      const datalist = document.getElementById('blast-suggestions');
+      if (!datalist || datalist.children.length > 0) return;
+      try {
+        const res = await fetch('/api/symbols/autocomplete?limit=150');
+        const data = await res.json();
+        if (data.status === 'ok' && data.items) {
+          datalist.innerHTML = data.items.map(item => `
+            <option value="${item.name}">${item.name} (${item.type})</option>
+          `).join('');
+        }
+      } catch (e) {
+        console.error("Autocomplete error:", e);
+      }
+    }
+
+    async function executeBlastAnalysis() {
+      const targetInput = document.getElementById('blast-target-input');
+      const target = targetInput ? targetInput.value.trim() : '';
+      if (!target) return;
+
+      const direction = document.getElementById('blast-direction').value;
+      const depth = document.getElementById('blast-depth').value;
+
+      document.getElementById('blast-tree-container').innerHTML = '<div class="text-slate-500 py-12 text-center font-mono">Computing blast radius & dependencies...</div>';
+
+      try {
+        const url = `/api/symbols/impact?target=${encodeURIComponent(target)}&direction=${direction}&max_depth=${depth}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== 'ok') {
+          document.getElementById('blast-tree-container').innerHTML = `<div class="p-3 text-rose-400">Analysis failed: ${data.message}</div>`;
+          return;
+        }
+
+        // 1. Update summary stat badges
+        const s = data.summary || {};
+        document.getElementById('blast-stat-target').textContent = data.target || target;
+        document.getElementById('blast-stat-target').title = data.target || target;
+        document.getElementById('blast-stat-type').textContent = s.type || 'symbol';
+        document.getElementById('blast-stat-direct').textContent = (s.direct_impact_count || 0).toLocaleString();
+        document.getElementById('blast-stat-transitive').textContent = ((s.type_hierarchy_count || 0) + (s.transitive_count || 0)).toLocaleString();
+        document.getElementById('blast-stat-total').textContent = (s.total_impacted_locations || 0).toLocaleString();
+
+        const riskEl = document.getElementById('blast-stat-risk');
+        if (s.risk_level === 'HIGH') {
+          riskEl.className = 'text-xs font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold';
+        } else if (s.risk_level === 'MEDIUM') {
+          riskEl.className = 'text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold';
+        } else {
+          riskEl.className = 'text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold';
+        }
+        riskEl.textContent = s.risk_level || 'LOW';
+
+        // 2. Render Graph Canvas
+        renderBlastGraph(data.nodes || [], data.edges || []);
+
+        // 3. Render Tree List
+        renderBlastTree(data.tree || []);
+
+      } catch (err) {
+        document.getElementById('blast-tree-container').innerHTML = `<div class="p-3 text-rose-400">Error: ${err}</div>`;
+      }
+    }
+
+    function renderBlastGraph(nodes, edges) {
+      const container = document.getElementById('blast-network-graph');
+      blastNodesDataSet = new vis.DataSet(nodes);
+      blastEdgesDataSet = new vis.DataSet(edges.map(e => ({
+        ...e,
+        smooth: { type: 'continuous', roundness: 0.2 },
+        width: 1.5,
+      })));
+
+      const options = {
+        physics: {
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -60,
+            centralGravity: 0.01,
+            springLength: 120,
+            springConstant: 0.08,
+            damping: 0.5,
+            avoidOverlap: 0.9
+          },
+          stabilization: { iterations: 100 }
+        },
+        interaction: { hover: true, tooltipDelay: 150, multiselect: false }
+      };
+
+      blastNetwork = new vis.Network(container, { nodes: blastNodesDataSet, edges: blastEdgesDataSet }, options);
+
+      blastNetwork.on('click', function(params) {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const row = document.getElementById(`blast-row-${btoa(nodeId).replace(/=/g, '')}`);
+          if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.classList.add('bg-slate-800');
+            setTimeout(() => row.classList.remove('bg-slate-800'), 1500);
+          }
+        }
+      });
+    }
+
+    function renderBlastTree(treeItems) {
+      const container = document.getElementById('blast-tree-container');
+      document.getElementById('blast-tree-count').textContent = `${treeItems.length} locations`;
+
+      if (!treeItems || treeItems.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 py-12 text-center text-xs">No direct callers or dependencies found for this node.</div>';
+        return;
+      }
+
+      container.innerHTML = treeItems.map(item => {
+        const isHigh = item.risk === 'HIGH';
+        const isMed = item.risk === 'MEDIUM';
+        const badgeColor = isHigh 
+          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' 
+          : isMed 
+          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+          : 'bg-sky-500/10 text-sky-400 border-sky-500/30';
+
+        const rowId = `blast-row-${btoa(item.source || item.file_path || item.name).replace(/=/g, '')}`;
+        const displayPath = (item.file_path || item.source || item.name || '').split('/').slice(-2).join('/');
+
+        return `
+          <div id="${rowId}" onclick="focusBlastNode('${item.source || item.file_path || item.name}')" class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 hover:border-slate-600 transition cursor-pointer space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-white text-xs truncate max-w-[180px]">${item.name || displayPath}</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded border ${badgeColor} font-bold">${item.risk}</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-400">
+              <span class="text-indigo-400 font-mono">${item.relation}</span>
+              ${item.line ? `<span class="text-slate-500 font-mono">Line ${item.line}</span>` : ''}
+            </div>
+            <div class="text-[10px] text-slate-500 truncate font-mono" title="${item.file_path || item.source || ''}">
+              ${item.file_path || item.source || ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function focusBlastNode(nodeId) {
+      if (!blastNetwork || !blastNodesDataSet) return;
+      if (blastNodesDataSet.get(nodeId)) {
+        blastNetwork.focus(nodeId, {
+          scale: 1.3,
+          animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+        });
+        blastNetwork.selectNodes([nodeId]);
+      }
+    }
+
+    async function populateGraphSelector() {
+      const select = document.getElementById('select-graph-type');
+      if (!select) return;
+      try {
+        const res = await fetch('/api/graphs');
+        const data = await res.json();
+        if (data.status === 'ok' && data.graphs && data.graphs.length > 0) {
+          const currentVal = select.value || 'cortex';
+          const validGraphs = data.graphs.filter(g => g !== 'default_db' && !g.endsWith('_test'));
+          select.innerHTML = validGraphs.map(g => {
+            const isEpisodic = g === 'cortex';
+            const label = isEpisodic ? 'Episodic Memory (cortex)' : `Symbol Graph (${g})`;
+            return `<option value="${g}">${label}</option>`;
+          }).join('');
+          if (Array.from(select.options).some(o => o.value === currentVal)) {
+            select.value = currentVal;
+          }
+        }
+      } catch (e) {
+        console.warn('Could not fetch graphs list:', e);
+      }
+    }
+
+    async function loadGraph() {
+      const statsEl = document.getElementById('graph-stats');
+      statsEl.textContent = 'Fetching graph data...';
+      const select = document.getElementById('select-graph-type');
+      const selectedDb = select ? select.value : 'cortex';
+      const isSymbols = selectedDb.includes('symbol');
+      
+      const legendEpisodic = document.getElementById('legend-episodic');
+      const legendSymbols = document.getElementById('legend-symbols');
+      if (legendEpisodic && legendSymbols) {
+        if (isSymbols) {
+          legendEpisodic.classList.add('hidden');
+          legendSymbols.classList.remove('hidden');
+        } else {
+          legendEpisodic.classList.remove('hidden');
+          legendSymbols.classList.add('hidden');
+        }
+      }
+
+      const clean = document.getElementById('toggle-hide-mentions').checked;
+      try {
+        const res = await fetch(`/api/graph?graph_name=${encodeURIComponent(selectedDb)}&clean=${clean}`);
+        const data = await res.json();
+        if (data.status !== 'ok') {
+          statsEl.textContent = 'Error: ' + data.message;
+          return;
+        }
+
+        allNodes = data.nodes || [];
+        allEdges = data.edges || [];
+        statsEl.textContent = `${allNodes.length} Nodes • ${allEdges.length} Relationships (${selectedDb})`;
+        applyGraphFilters();
+      } catch (e) {
+        statsEl.textContent = 'Failed to load graph';
+      }
+    }
+
+    function handleToggleClean() {
+      const graphType = document.getElementById('select-graph-type') ? document.getElementById('select-graph-type').value : 'episodic';
+      if (graphType === 'symbols') {
+        loadGraph();
+      } else {
+        applyGraphFilters();
+      }
+    }
+
+    function applyGraphFilters() {
+      const graphType = document.getElementById('select-graph-type') ? document.getElementById('select-graph-type').value : 'episodic';
+      const hideMentions = document.getElementById('toggle-hide-mentions').checked;
+      
+      if (graphType === 'symbols') {
+        // Render symbol graph as retrieved (already filtered by backend based on clean flag)
+        document.getElementById('graph-stats').textContent = `${allNodes.length} Visible Nodes • ${allEdges.length} Visible Edges`;
+        renderGraph(allNodes, allEdges);
+        return;
+      }
+      
+      let filteredEdges = allEdges;
+      if (hideMentions) {
+        filteredEdges = allEdges.filter(e => !e.is_mention);
+      }
+
+      // If hiding mentions, also filter out standalone episodic nodes that only had mentions
+      let filteredNodes = allNodes;
+      if (hideMentions) {
+        const connectedNodeIds = new Set();
+        filteredEdges.forEach(e => {
+          connectedNodeIds.add(e.from);
+          connectedNodeIds.add(e.to);
+        });
+        filteredNodes = allNodes.filter(n => n.group !== 'episodic' || connectedNodeIds.has(n.id));
+      }
+
+      document.getElementById('graph-stats').textContent = `${filteredNodes.length} Visible Nodes • ${filteredEdges.length} Visible Edges`;
+      renderGraph(filteredNodes, filteredEdges);
+    }
+
+    function renderGraph(nodesData, edgesData) {
+      const container = document.getElementById('network-graph');
+      
+      const formattedNodes = nodesData.map(n => {
+        const isEpisodic = n.group === 'episodic';
+        const isFile = n.group === 'file';
+        const isSymbol = n.group === 'symbol';
+
+        let bg = '#06b6d4', border = '#0891b2', hiBg = '#38bdf8', hiBorder = '#0284c7';
+        let shape = 'dot';
+        let size = 16;
+
+        if (isEpisodic) {
+          bg = '#f59e0b'; border = '#d97706'; hiBg = '#fbbf24'; hiBorder = '#f59e0b';
+          shape = 'box'; size = 20;
+        } else if (n.group === 'document') {
+          bg = '#06b6d4'; border = '#0891b2'; hiBg = '#38bdf8'; hiBorder = '#0284c7';
+          shape = 'box'; size = 18;
+        } else if (n.group === 'tag') {
+          bg = '#f59e0b'; border = '#d97706'; hiBg = '#fbbf24'; hiBorder = '#b45309';
+          shape = 'ellipse'; size = 13;
+        } else if (n.group === 'concept') {
+          bg = '#ec4899'; border = '#db2777'; hiBg = '#f472b6'; hiBorder = '#be185d';
+          shape = 'dot'; size = 14;
+        } else if (isFile) {
+          bg = '#6366f1'; border = '#4f46e5'; hiBg = '#818cf8'; hiBorder = '#4338ca';
+          shape = 'box'; size = 18;
+        } else if (isSymbol) {
+          bg = '#10b981'; border = '#059669'; hiBg = '#34d399'; hiBorder = '#047857';
+          shape = 'dot'; size = 14;
+        }
+
+        return {
+          id: n.id,
+          label: n.label,
+          full_name: n.full_name || n.id,
+          group: n.group,
+          color: { background: bg, border: border, highlight: { background: hiBg, border: hiBorder } },
+          font: { color: '#ffffff', face: 'monospace', size: (isEpisodic || isFile) ? 11 : 12 },
+          shape: shape,
+          size: size,
+          margin: 8,
+          borderWidth: 1.5,
+        };
+      });
+
+      const formattedEdges = edgesData.map(e => ({
+        ...e,
+        color: e.color || { color: e.is_mention ? '#334155' : '#818cf8', highlight: '#c7d2fe' },
+        width: e.is_mention ? 1 : 2,
+        smooth: { type: 'continuous', roundness: 0.2 },
+        dashes: e.is_mention
+      }));
+
+      nodesDataSet = new vis.DataSet(formattedNodes);
+      edgesDataSet = new vis.DataSet(formattedEdges);
+
+      const options = {
+        physics: {
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -70,
+            centralGravity: 0.008,
+            springLength: 130,
+            springConstant: 0.08,
+            damping: 0.45,
+            avoidOverlap: 0.9
+          },
+          stabilization: { iterations: 120 }
+        },
+        interaction: { hover: true, tooltipDelay: 150, multiselect: false }
+      };
+
+      network = new vis.Network(container, { nodes: nodesDataSet, edges: edgesDataSet }, options);
+      
+      network.on('click', function(params) {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const node = nodesDataSet.get(nodeId);
+          focusNode(nodeId);
+          openDrawer(node);
+        } else {
+          resetGraphFocus();
+          closeDrawer();
+        }
+      });
+    }
+
+    let currentFocusedNodeId = null;
+
+    function getNeighborhood(startNodeId, radius) {
+      if (radius === 'all') {
+        const visited = new Set([startNodeId]);
+        const queue = [startNodeId];
+        while (queue.length > 0) {
+          const curr = queue.shift();
+          const neighbors = network.getConnectedNodes(curr);
+          for (const n of neighbors) {
+            if (!visited.has(n)) {
+              visited.add(n);
+              queue.push(n);
+            }
+          }
+        }
+        return Array.from(visited);
+      }
+
+      const r = parseInt(radius, 10) || 1;
+      let currentLevel = new Set([startNodeId]);
+      const visited = new Set([startNodeId]);
+
+      for (let hop = 0; hop < r; hop++) {
+        const nextLevel = new Set();
+        for (const nid of currentLevel) {
+          const neighbors = network.getConnectedNodes(nid);
+          for (const neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+              visited.add(neighbor);
+              nextLevel.add(neighbor);
+            }
+          }
+        }
+        currentLevel = nextLevel;
+      }
+      return Array.from(visited);
+    }
+
+    function updateFocusRadius() {
+      if (currentFocusedNodeId) {
+        focusNode(currentFocusedNodeId);
+      }
+    }
+
+    function focusNode(nodeId) {
+      currentFocusedNodeId = nodeId;
+      const radius = document.getElementById('select-hop-radius') ? document.getElementById('select-hop-radius').value : '1';
+      const isolated = document.getElementById('toggle-isolated-focus') ? document.getElementById('toggle-isolated-focus').checked : false;
+
+      const connected = getNeighborhood(nodeId, radius);
+
+      if (isolated) {
+        // Physical slicing: only show connected nodes and their connecting edges
+        const connectedSet = new Set(connected);
+        const filteredNodes = allNodes.filter(n => connectedSet.has(n.id));
+        const filteredEdges = allEdges.filter(e => connectedSet.has(e.from) && connectedSet.has(e.to));
+        renderGraph(filteredNodes, filteredEdges);
+      } else {
+        // Visual dimming
+        const allNodeUpdates = nodesDataSet.get().map(n => {
+          const isConnected = connected.includes(n.id);
+          return {
+            id: n.id,
+            opacity: isConnected ? 1.0 : 0.12,
+            hidden: false
+          };
+        });
+        nodesDataSet.update(allNodeUpdates);
+      }
+    }
+
+    function resetGraphFocus() {
+      currentFocusedNodeId = null;
+      document.getElementById('graph-search').value = '';
+      applyGraphFilters();
+    }
+
+    function filterGraphBySearch() {
+      const q = document.getElementById('graph-search').value.toLowerCase().trim();
+      if (!q || !nodesDataSet) {
+        resetGraphFocus();
+        return;
+      }
+
+      const match = nodesDataSet.get().find(n => (n.full_name || n.id).toLowerCase().includes(q));
+      if (match) {
+        network.focus(match.id, { scale: 1.2, animation: true });
+        focusNode(match.id);
+        openDrawer(match);
+      }
+    }
+
+    function openDrawer(node) {
+      const drawer = document.getElementById('node-details-drawer');
+      const tag = document.getElementById('drawer-tag');
+      const title = document.getElementById('drawer-title');
+      const body = document.getElementById('drawer-body');
+      
+      drawer.classList.remove('hidden');
+      title.textContent = node.full_name || node.id;
+      
+      const isEpisodic = node.group === 'episodic';
+      const isFile = node.group === 'file';
+      const isSymbol = node.group === 'symbol';
+      const isDocument = node.group === 'document';
+      const isTag = node.group === 'tag';
+      const isConcept = node.group === 'concept';
+
+      if (isEpisodic) {
+        tag.textContent = 'Episodic Decision';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30';
+      } else if (isDocument) {
+        tag.textContent = 'Markdown Note';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30';
+      } else if (isTag) {
+        tag.textContent = 'Topic Tag';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30';
+      } else if (isConcept) {
+        tag.textContent = 'Vault Concept';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-pink-500/20 text-pink-400 border border-pink-500/30';
+      } else if (isFile) {
+        tag.textContent = 'Source File';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30';
+      } else if (isSymbol) {
+        tag.textContent = 'Code Symbol';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+      } else {
+        tag.textContent = 'Entity';
+        tag.className = 'text-[10px] font-mono px-2 py-0.5 rounded uppercase font-semibold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30';
+      }
+
+      const connectedEdges = edgesDataSet.get({
+        filter: e => e.from === node.id || e.to === node.id
+      });
+
+      let relsHtml = connectedEdges.map(e => {
+        const otherId = e.from === node.id ? e.to : e.from;
+        const arrow = e.from === node.id ? '→' : '←';
+        return `
+          <div class="flex items-center justify-between p-1.5 rounded bg-slate-950/60 border border-slate-800">
+            <span class="text-indigo-400 font-mono text-[10px]">${e.label}</span>
+            <span class="text-slate-300 font-mono text-[11px] truncate max-w-[200px]" title="${otherId}">${arrow} ${otherId.split('/').slice(-2).join('/')}</span>
+          </div>
+        `;
+      }).join('');
+
+      const graphType = document.getElementById('select-graph-type') ? document.getElementById('select-graph-type').value : 'episodic';
+      const dbName = graphType === 'symbols' ? 'cortex_symbols' : 'cortex';
+
+      body.innerHTML = `
+        <div>
+          <span class="text-slate-400 text-[11px]">Database:</span>
+          <span class="font-mono text-slate-200">FalkorDB (${dbName})</span>
+        </div>
+        <div class="pt-2 border-t border-slate-800">
+          <span class="text-slate-400 text-[11px] block mb-1.5">Direct Relationships (${connectedEdges.length}):</span>
+          <div class="space-y-1 max-h-56 overflow-y-auto">
+            ${relsHtml || '<span class="text-slate-500">No active relationships.</span>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function closeDrawer() {
+      document.getElementById('node-details-drawer').classList.add('hidden');
+    }
+
+    async function loadJournal() {
+      try {
+        const res = await fetch('/api/journal');
+        const data = await res.json();
+        allJournalEntries = data.entries || [];
+        renderJournal(allJournalEntries);
+      } catch (e) {
+        document.getElementById('journal-timeline').innerHTML = '<div class="text-rose-400">Failed to load journal.</div>';
+      }
+    }
+
+    function renderJournal(entries) {
+      const container = document.getElementById('journal-timeline');
+      if (entries.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 py-8 text-center">No journal entries found.</div>';
+        return;
+      }
+      container.innerHTML = entries.map(e => `
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 pb-3">
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-mono bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/30">${e.date}</span>
+              <h3 class="font-semibold text-white text-base">${e.title}</h3>
+            </div>
+            ${e.project ? `<span class="text-xs font-mono bg-slate-800 text-slate-300 px-2 py-0.5 rounded">Project: ${e.project}</span>` : ''}
+          </div>
+          <p class="text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">${e.body}</p>
+          ${e.tags && e.tags.length > 0 ? `
+            <div class="flex flex-wrap gap-1.5 pt-2">
+              ${e.tags.map(t => `<span class="text-[10px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">#${t}</span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+
+    function filterJournal() {
+      const q = document.getElementById('journal-search').value.toLowerCase();
+      const filtered = allJournalEntries.filter(e => 
+        e.title.toLowerCase().includes(q) || 
+        e.body.toLowerCase().includes(q) || 
+        (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
+      );
+      renderJournal(filtered);
+    }
+
+    async function loadCollections() {
+      const container = document.getElementById('collections-grid');
+      container.innerHTML = '<div class="text-slate-500 py-4 col-span-3 text-center">Fetching Qdrant collections...</div>';
+      try {
+        const res = await fetch('/api/collections');
+        const data = await res.json();
+        if (data.status !== 'ok' || !data.collections) {
+          container.innerHTML = `<div class="text-rose-400 col-span-3">Failed to load collections: ${data.message || 'Error'}</div>`;
+          return;
+        }
+
+        if (data.collections.length === 0) {
+          container.innerHTML = '<div class="text-slate-500 py-4 col-span-3 text-center">No collections found in Qdrant.</div>';
+          return;
+        }
+
+        container.innerHTML = data.collections.map(c => `
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <span class="font-bold text-white text-sm font-mono">${c.name}</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 uppercase">${c.status}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div>
+                <span class="text-slate-500 block text-[10px]">Points / Chunks:</span>
+                <span class="text-slate-200 font-bold">${c.points_count.toLocaleString()}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block text-[10px]">Vectors:</span>
+                <span class="text-slate-200 font-bold">${c.vectors_count.toLocaleString()}</span>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-slate-800/60 flex justify-between items-center text-xs">
+              <span class="text-[10px] text-slate-500">Vector Size: 4096 (Cosine)</span>
+              <a href="http://localhost:6333/dashboard" target="_blank" class="text-indigo-400 hover:underline text-[11px]">Inspect →</a>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        container.innerHTML = `<div class="text-rose-400 col-span-3">Error fetching collections: ${e}</div>`;
+      }
+    }
+
+    async function createNewCollection() {
+      const input = document.getElementById('new-collection-name');
+      const name = input.value.trim();
+      if (!name) {
+        alert("Please enter a collection name.");
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          input.value = '';
+          alert(`✅ Collection '${name}' created successfully in Qdrant!`);
+          loadCollections();
+        } else {
+          alert(`Failed to create collection: ${data.error || JSON.stringify(data)}`);
+        }
+      } catch (e) {
+        alert(`Error: ${e}`);
+      }
+    }
+
+    async function executeRetrieval() {
+      const q = document.getElementById('retrieval-query').value.trim();
+      const col = document.getElementById('retrieval-collection').value.trim() || null;
+      if (!q) return;
+
+      document.getElementById('tier0-content').innerHTML = '<span class="text-sky-400">Resolving code symbols...</span>';
+      document.getElementById('tier1-content').innerHTML = '<span class="text-amber-400">Searching FalkorDB facts...</span>';
+      document.getElementById('tier2-content').innerHTML = '<span class="text-indigo-400">Slicing tree-sitter AST...</span>';
+      document.getElementById('tier3-content').innerHTML = '<span class="text-emerald-400">Dense retrieval + MLX rerank...</span>';
+
+      try {
+        const payload = { query: q };
+        if (col) payload.collection = col;
+
+        const res = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        // Tier 0: Symbols
+        const t0 = document.getElementById('tier0-content');
+        if (data.tier0_symbols && data.tier0_symbols.length > 0) {
+          t0.innerHTML = data.tier0_symbols.map(s => {
+            if (s.error) return `<div class="p-2 text-rose-400">${s.error}</div>`;
+            return `
+              <div class="p-2.5 bg-slate-950/70 rounded border border-slate-800/80 space-y-1.5">
+                <span class="text-xs text-sky-400 font-bold font-mono">${s.symbol}</span>
+                ${(s.definitions || []).map(d => `
+                  <div class="text-[10px] text-slate-300">
+                    <span class="text-sky-300 font-semibold">[Def]</span> ${d.kind}: <span class="text-indigo-300">${d.file_path.split('/').slice(-2).join('/')}:${d.line}</span>
+                  </div>
+                `).join('')}
+                ${s.imports && s.imports.length > 0 ? `<div class="text-[10px] text-purple-300 font-mono">Imported by: ${s.imports.length} file(s)</div>` : ''}
+                ${s.references && s.references.length > 0 ? `<div class="text-[10px] text-emerald-300 font-mono">Calls/Refs: ${s.references.length} site(s)</div>` : ''}
+              </div>
+            `;
+          }).join('');
+        } else {
+          t0.innerHTML = '<span class="text-slate-500">No exact symbols matched.</span>';
+        }
+
+        // Tier 1: Facts
+        const t1 = document.getElementById('tier1-content');
+        t1.innerHTML = data.tier1_facts && data.tier1_facts.length > 0 
+          ? data.tier1_facts.map(f => `<div class="p-2 bg-slate-950/60 rounded border border-slate-800/80">${f}</div>`).join('')
+          : '<span class="text-slate-500">No specific facts matched.</span>';
+
+        // Tier 2: Viking Structure
+        const t2 = document.getElementById('tier2-content');
+        t2.innerHTML = data.tier2_viking 
+          ? `<pre class="whitespace-pre-wrap leading-relaxed">${data.tier2_viking}</pre>`
+          : '<span class="text-slate-500">No structural code context found.</span>';
+
+        // Tier 3: Reranked Snippets
+        const t3 = document.getElementById('tier3-content');
+        t3.innerHTML = data.tier3_snippets && data.tier3_snippets.length > 0
+          ? data.tier3_snippets.map((s, idx) => `
+              <div class="p-2.5 bg-slate-950/60 rounded border border-slate-800/80 space-y-1">
+                <span class="text-[10px] text-emerald-400 font-bold">#${idx+1} Match</span>
+                <pre class="text-[11px] whitespace-pre-wrap text-slate-300 leading-snug">${s.slice(0, 300)}...</pre>
+              </div>
+            `).join('')
+          : '<span class="text-slate-500">No snippets retrieved.</span>';
+      } catch (e) {
+        alert("Retrieval request failed: " + e);
+      }
+    }
+
+    function refreshAll() {
+      loadHealth();
+      if (!document.getElementById('tab-content-graph').classList.contains('hidden')) loadGraph();
+      if (!document.getElementById('tab-content-journal').classList.contains('hidden')) loadJournal();
+      if (!document.getElementById('tab-content-collections').classList.contains('hidden')) loadCollections();
+    }
+
+    // Dream Mode Modal Functions
+    function openDreamModal() {
+      const modal = document.getElementById('dream-modal');
+      const box = document.getElementById('dream-status-box');
+      if (modal) modal.classList.remove('hidden');
+      if (box) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+      }
+      lucide.createIcons();
+    }
+
+    function closeDreamModal() {
+      const modal = document.getElementById('dream-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function runDreamMode() {
+      const btn = document.getElementById('btn-run-dream');
+      const statusBox = document.getElementById('dream-status-box');
+      const project = document.getElementById('dream-project').value || 'cortex';
+      const purgeStale = document.getElementById('dream-purge-stale').checked;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="animate-spin mr-1">⏳</span> Consolidating...';
+      statusBox.classList.remove('hidden');
+      statusBox.innerHTML = '<div class="text-purple-400">🌙 Executing consolidation cycle (Pruning, Louvain clustering, Invariant induction)...</div>';
+
+      try {
+        const res = await fetch('/api/dream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: project, purge_stale: purgeStale })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          const r = data.report;
+          statusBox.innerHTML = `
+            <div class="text-emerald-400 font-bold">✅ Dream Mode completed successfully!</div>
+            <div class="space-y-1 text-slate-300 pt-1">
+              <div>• Active Facts Remaining: <span class="text-indigo-400">${r.pruned_facts.active_facts_remaining}</span></div>
+              <div>• Superseded Facts Pruned: <span class="text-amber-400">${r.pruned_facts.superseded_facts_pruned}</span></div>
+              <div>• Contradictions Flagged: <span class="text-rose-400">${r.pruned_facts.contradictions_flagged.length}</span></div>
+              <div>• Subsystem Clusters: <span class="text-sky-400">${r.subsystem_clusters}</span></div>
+              <div>• Invariant Rules: <span class="text-emerald-400">${r.invariants_inducted}</span></div>
+              <div class="text-slate-400 pt-1 text-[10px]">Report: ${r.dream_report_path}</div>
+            </div>
+          `;
+          loadGraph();
+        } else {
+          statusBox.innerHTML = `<div class="text-rose-400 font-bold">❌ Error: ${data.message}</div>`;
+        }
+      } catch (err) {
+        statusBox.innerHTML = `<div class="text-rose-400 font-bold">❌ Failed to run dream mode: ${err}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Run Dream Mode';
+        lucide.createIcons();
+      }
+    }
+
+    // Initial Load
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      loadHealth();
+      populateGraphSelector().then(() => loadGraph());
+      setInterval(loadHealth, 15000); // 15s health heartbeat
+    });
+  </script>
+
+  <!-- Dream Mode Modal -->
+  <div id="dream-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-purple-500/40 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">🌙</span>
+          <div>
+            <h3 class="text-base font-bold text-white">Cortex Dream Mode</h3>
+            <p class="text-xs text-purple-400">Autonomous Fact Consolidation & Subsystem Clustering</p>
+          </div>
+        </div>
+        <button onclick="closeDreamModal()" class="text-slate-400 hover:text-white p-1">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300">
+        <p>Dream Mode executes 4 offline consolidation phases:</p>
+        <ul class="list-disc list-inside space-y-1 text-slate-400 font-mono text-[11px]">
+          <li>Phase 1: Synaptic Pruning (resolves contradictions & archives stale facts)</li>
+          <li>Phase 2: Louvain Subsystem Community Clustering via NetworkX</li>
+          <li>Phase 3: High-Density Invariant Induction across architectural decisions</li>
+          <li>Phase 4: Generates dated Dream Report in <code class="text-purple-300">cortex/journal/dreams/</code></li>
+        </ul>
+
+        <div class="bg-slate-950/60 border border-slate-800 p-3 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="font-medium text-slate-200">Project Label:</label>
+            <input type="text" id="dream-project" value="cortex" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-white font-mono w-32 focus:outline-none focus:border-purple-500">
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="font-medium text-slate-200" title="If checked, physically deletes superseded facts from FalkorDB after archiving to markdown">
+              Purge Superseded Facts (Hard Prune):
+            </label>
+            <input type="checkbox" id="dream-purge-stale" class="rounded border-slate-700 text-purple-600 focus:ring-purple-500">
+          </div>
+        </div>
+
+        <div id="dream-status-box" class="hidden p-3 bg-slate-950 rounded-xl border border-slate-800 font-mono text-xs space-y-2 max-h-48 overflow-y-auto"></div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <button onclick="closeDreamModal()" class="px-4 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white border border-slate-800 hover:bg-slate-800 transition">
+          Close
+        </button>
+        <button id="btn-run-dream" onclick="runDreamMode()" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg transition flex items-center gap-1.5">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Run Dream Mode
+        </button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
